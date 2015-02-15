@@ -1,0 +1,80 @@
+My original intention for this script was to send Prowl notifications for
+certain emails that were going through my own private mail server. To
+accomplish this, I used a facility called Sieve that is provided in the Dovecot
+email server through a plugin called Pigeonhole. On modern installations of
+Dovecot, this functionality is provided out-of-the-box, but it must be
+configured properly. Moreover, on Debian/Ubuntu systems, one particular plugin
+file is installed to the wrong directory and this must be fixed before it will
+work.
+
+Platform Used
+-------------
+     * Ubuntu Server 14.04 LTS
+     * Dovecot 2.2.9
+
+Setting-Up Sieve
+----------------
+	1) First, enable the sieve plugin. I enabled
+	mine by changing the 99-mail-stack-delivery.conf file in 
+	/etc/dovecot/conf.d/ and making one particular setting.
+		mail_plugins = sieve
+
+	2) Next, I had to enable the additional sieve plugin, which was installed
+	into the wrong folder in my distribution. I did this with the follwoing
+	commands: 
+		sudo mkdir /usr/lib/dovecot/modules/sieve
+		sudo ln -s ../lib90_sieve_extprograms_plugin.so /usr/lib/dovecot/modules/sieve/lib90_sieve_extprograms_plugin.so
+
+	3) Next, I had to setup some global files for sieve to work with.
+		sudo mkdir /var/lib/dovecot/sieve
+		sudo mkdir /var/lib/dovecot/sieve/global
+		sudo mkdir /usr/lib/dovecot/sieve-pipe
+		sudo touch /var/lib/dovecot/sieve/default.sieve
+
+	4) Next, I had to setup my sieve settings in 
+	/etc/dovecot/conf.d/90-sieve.conf. If any of these values are commented out
+	in your configuration, you'll have to make the appropriate settings.
+		sieve = ~/.dovecot.sieve
+		sieve_default = /var/lib/dovecot/sieve/default.sieve
+		sieve_dir = ~/sieve
+		sieve_global_dir = /var/lib/dovecot/sieve/global/
+		sieve_extensions = +vnd.dovecot.pipe
+		sieve_plugins = sieve_extprograms
+		sieve_pipe_bin_dir = /usr/lib/dovecot/sieve-pipe
+
+	5) Next, I had to reload dovecot. On my platform I did this by issuing 
+	this command:
+		sudo service dovecot restart
+
+	6) Now it was time to install prowlpy.py and notify_prowl.py into 
+	/usr/lib/dovecot/sieve-pipe/. It's important that these files are *not* 
+	writable by just any user, so I did this:
+		sudo chmod 755 /usr/lib/dovecot/sieve-pipe/pythonpy.py
+		sudo chmod 755 /usr/lib/dovecot/sieve-pipe/notify_prowl.py
+
+	7) And then, finally, I was ready to write a sieve script. The script I use
+	is particular to the one user that I want to get notifications for. The
+	location of this file is based on the "sieve =" setting that we previously
+	established, which means that each user's script is called .default.sieve in
+	their mail home directory. For me, that is a vmail folder like this:
+	/var/mail/vmail/<domain.com>/<username>/.dovecot.sieve and has content like
+	this (this is the whole file):
+
+		#first, establish the sieve plugins we want to use
+		# copy = allows the pipe command to function on a copy of the message
+		# vnd.dovecot.pipe = enables the pipe command we want to use
+		# -- the scripts that are available to this command must be located 
+		# -- in the folder established by the sieve_pipe_bin_dir setting.
+		require ["enotify", "variables", "vnd.dovecot.pipe", "copy"];
+
+		# this command is not in an if block and runs for all messages
+		# -- older versions of the pipe command required a syntax like this
+		# -- pipe :copy :args ["-apikey", "dh374djwg7dh3udi2684kshuigh374l4m6jk3g5j"] "notify_prowl.py"
+		# -- ALSO NOTE that :copy here is optional, but it's nice to have
+		# -- sieve has an "implicit keep" rule, but the pipe command breaks
+		# -- that rule unless you specify :copy
+		pipe :copy "notify_prowl.py" ["-apikey", "dh374djwg7dh3udi2684kshuigh374l4m6jk3g5j"];
+
+	NOTE, you could use a more sophistocated scenario in your sieve script if
+	you wanted to, perhaps putting your pipe command in an if block to only send
+	you notifications for particular messages. The choice is up to you.
