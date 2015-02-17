@@ -18,7 +18,11 @@ program_description = program_description + 'To get your apikey, see https://www
 
 # define the command line arguments
 parser = argparse.ArgumentParser(description=program_description)
-parser.add_argument('-apikey', required=True, help='your personal apikey from your prowlapp.com account')
+parser.add_argument('-apikey', required=True, help='your personal apikey from your prowlapp.com account (required)')
+parser.add_argument('-priority', type=int, default=0, choices=range(-2,3), help='which Prowl priority to use for the message (default: -1)')
+parser.add_argument('-application', default='Mail', help='the appliation name to supply to Prowl for long format (default: Mail)')
+parser.add_argument('-format', default='short', choices=['short', 'long'], help='specifies which format to send to Prowl (default: short)')
+parser.add_argument('-addfrom', default=False, action='store_true', help='append the word "from" before the sender when using the long format (if not specified then False)')
 args = parser.parse_args()
 
 # initialize an exit code to use later
@@ -45,14 +49,14 @@ the_from = [afrom[0] for afrom in the_from][0]
 # if there was no encoding, the result is the None object
 # in this case, we need a string to indicate none
 if subject_encoding is None:
-	subject_encoding = 'none'
+    subject_encoding = 'none'
 if from_encoding is None:
-	from_encoding = 'none'
+    from_encoding = 'none'
 
 # next, extract the name out of the most commone email address format
 match = re.search('(.*) <.*@.*>', the_from)
 if match:
-     the_from = match.group(1)
+    the_from = match.group(1)
 
 # next, extract the name out of another common format for email address
 match = re.search('.*@.* \((.*)\)', the_from)
@@ -67,19 +71,32 @@ the_from = the_from.strip(' "()<>')
 # remove any spaces from the beginning or end of the subject
 the_subject = the_subject.strip()
 
-# next, truncate the from and subject fields to the maximum amount allowed by the prowlapp api
-the_from = the_from[:256]
-the_subject = the_subject[:1024]
+original_from = the_from
+original_subject = the_subject
+
+# next, truncate the fields to the maximum amount allowed by the prowlapp api
+if (args.format == 'short'):
+	the_from = the_from[:256]
+	the_subject = the_subject[:1024]
+else:
+	if args.addfrom:
+		the_from = 'from ' + the_from
+	args.application = args.application[:256]
+	the_from = the_from[:1024]
+	the_subject = the_subject[:10000]
 
 # log what's happening to the mail system log
 syslog.openlog(ident='notify_prowl', facility=syslog.LOG_MAIL, logoption=syslog.LOG_PID)
-syslog.syslog(the_from + ' | ' + the_subject + ' (from/subject encoding ' + from_encoding + '/' + subject_encoding + ') (apikey=' + args.apikey + ')')
+syslog.syslog(' '.join(sys.argv) + ' | ' + original_from + ' | ' + original_subject + ' (from/subject encoding '  + from_encoding + '/' + subject_encoding + ')')
 
 # open the connection to prowl
 p = prowlpy.Prowl(args.apikey)
 try:
     # try to send our message. if we don't have an exception, we were successful
-    p.add(application = the_from, event = the_subject, description = '', priority = -1)
+    if (args.format == 'short'):
+    	p.add(application = the_from, event = the_subject, description = '', priority = args.priority)
+    else:
+	p.add(application = args.application, event = the_from, description = the_subject, priority = args.priority)
     syslog.syslog('Prowl Message Sent');
 except Exception,msg:
     # if there was any exception, log it and get ready to send an error
